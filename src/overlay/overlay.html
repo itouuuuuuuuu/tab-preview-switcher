@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Must match overlay.css and the iframe element in content.ts. Applied ahead
+      of the CSS so the scheme cannot disagree for a moment while loading and
+      leave the canvas painted opaque.
+    -->
+    <meta name="color-scheme" content="only dark" />
+    <title>Tab Preview Switcher</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body>
+    <div id="panel" class="panel" role="presentation">
+      <div id="row" class="row"></div>
+    </div>
+    <script src="overlay.js"></script>
+  </body>
+</html>

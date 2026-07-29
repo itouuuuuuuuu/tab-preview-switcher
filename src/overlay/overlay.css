@@ -1,0 +1,250 @@
+/*
+ * No full-screen dim behind the panel. Only the panel floats; the page stays
+ * visible behind it, matching the reference screenshot.
+ */
+
+:root {
+  /*
+   * Must match the iframe element in content.ts and the meta in overlay.html.
+   *
+   * css-color-adjust compares the used color scheme of the iframe element with
+   * that of the embedded document's root element. When they disagree it paints
+   * an opaque Canvas colour instead of a transparent canvas, completely hiding
+   * the page behind it.
+   *
+   * What it compares is the iframe element, not the page, so pinning both sides
+   * to the same single scheme matches whether the page is light or dark.
+   * Changing only one side cannot guarantee a match: normal does not mean
+   * "inherit from the parent" but "use the schemes this document supports", so
+   * dropping the declaration does not line them up either.
+   */
+  color-scheme: only dark;
+  --panel-bg: rgba(38, 40, 45, 0.97);
+  --panel-border: rgba(255, 255, 255, 0.1);
+  --card-radius: 16px;
+  --thumb-radius: 10px;
+  --thumb-bg: #191b1f;
+  --text: #e9ebee;
+  --muted: rgba(233, 235, 238, 0.55);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  /* The single most important declaration for not hiding the page behind. */
+  background: transparent !important;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', 'Yu Gothic', system-ui,
+    sans-serif;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: none;
+  max-width: 94vw;
+  padding: 20px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--panel-border);
+  border-radius: 28px;
+  background: var(--panel-bg);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.55),
+    0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.panel.is-visible {
+  display: block;
+  animation: appear 90ms ease-out;
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.card {
+  position: relative;
+  flex: 0 0 auto;
+  width: clamp(132px, 16vw, 250px);
+  padding: 6px;
+  border-radius: var(--card-radius);
+  transition:
+    width 140ms ease-out,
+    padding 140ms ease-out,
+    margin 140ms ease-out,
+    opacity 110ms ease-out;
+}
+
+/*
+ * The collapsed state. A card closed with W shrinks into it, and a card moved up
+ * to fill the slot expands out of it, so the others close up or spread without
+ * jumping.
+ */
+.card.is-leaving,
+.card.is-collapsed {
+  width: 0;
+  /* A flex item's automatic minimum size would override width: 0. */
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+
+/* The leaving card absorbs the gap after it. */
+.card.is-leaving {
+  margin-right: -8px;
+}
+
+/* The entering card absorbs the gap appearing before it. */
+.card.is-collapsed {
+  margin-left: -8px;
+}
+
+/* Focus is shown by glow, not by scaling up: a blurred gradient bleeds past the edges. */
+.glow {
+  position: absolute;
+  z-index: 0;
+  inset: -2px;
+  border-radius: calc(var(--card-radius) + 4px);
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 34%, #a855f7 66%, #ec4899 100%);
+  opacity: 0;
+  filter: blur(15px);
+  transition: opacity 120ms ease-out;
+  pointer-events: none;
+}
+
+.card.is-focused > .glow {
+  opacity: 0.9;
+}
+
+/* A plate covering the middle of the glow, so only the edges appear to light up. */
+.body {
+  position: relative;
+  z-index: 1;
+  padding: 4px;
+  border-radius: 12px;
+  background: transparent;
+  transition: background-color 120ms ease-out;
+}
+
+.card.is-focused > .body {
+  background: rgba(28, 30, 35, 0.74);
+}
+
+.thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--thumb-radius);
+  background: var(--thumb-bg);
+  object-fit: cover;
+  object-position: top center;
+}
+
+/* Card for a tab with neither a screenshot nor a stand-in image. */
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--thumb-radius);
+  background: var(--thumb-bg);
+}
+
+.placeholder-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.placeholder-initial {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 17px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.placeholder-host {
+  max-width: 88%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.label {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 0 2px;
+  min-width: 0;
+}
+
+.favicon {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.favicon-fallback {
+  display: flex;
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.title {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
