@@ -56,10 +56,6 @@ function render(candidates: Candidate[], focusIndex: number): void {
   cards = candidates.map((candidate) => buildCard(candidate))
   row.replaceChildren(...cards)
   setFocus(focusIndex)
-
-  // Replays the fade-in every time the overlay opens again.
-  panel.classList.remove('is-visible')
-  void panel.offsetWidth
   panel.classList.add('is-visible')
 }
 

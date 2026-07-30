@@ -352,8 +352,8 @@ function installTopFrame(): void {
     // The next candidate moves up into the same slot. Only closing the last card
     // walks focus back by one.
     if (focusIndex >= ring.length) focusIndex = ring.length - 1
-    // Sending render would rebuild every card, re-decode the thumbnails and
-    // replay the panel fade-in, which flickers. Remove just the closed one.
+    // Sending render would rebuild every card and re-decode the thumbnails,
+    // which flickers. Remove just the closed one.
     toOverlay({ type: 'remove', index: removedIndex, focusIndex })
 
     refill()
