@@ -1,60 +1,60 @@
 # Tab Preview Switcher
 
-プレビューを見ながら、**最近開いた順**にタブを切り替える Chrome / Brave 拡張。
+A Chrome / Brave extension that switches tabs in **most-recently-opened order** while showing previews.
 
-`Ctrl` を押したままキーを連打してフォーカスを送り、`Ctrl` を離した瞬間に確定する。離すまで実際のタブは動かない。
+Hold `Ctrl`, tap the cycle key to move focus, and the moment you release `Ctrl` the switch commits. Until you let go, no tab actually moves.
 
 ```
 ┌──────────────────────────────────────────────┐
 │ ┌───┐ ┏━━━━━┓ ┌───┐ ┌───┐ ┌───┐ │
 │ │   │ ┃     ┃ │   │ │   │ │   │ │
 │ └───┘ ┗━━━━━┛ └───┘ └───┘ └───┘ │
-│  現在    候補1     候補2   候補3   候補4  │
+│ current   cand 1    cand 2  cand 3  cand 4  │
 └──────────────────────────────────────────────┘
 ```
 
-## キー操作
+## Keys
 
-| 操作 | 挙動 |
+| Action | Behaviour |
 | --- | --- |
-| `Ctrl+A` | オーバーレイを開き、候補 1 にフォーカス。単打で離せば直前のタブへ |
-| `Ctrl` 押下中に `A` を追加 | 次の候補へ |
-| `Backspace` | 逆送り |
-| `Ctrl+Shift+A` | 逆送り（Windows / Linux では効かない） |
-| `W` | フォーカス中のタブを閉じる（macOS のみ） |
-| `Esc` | キャンセル。現在タブに留まる |
-| `Ctrl` を離す | フォーカス中のタブに確定 |
+| `Ctrl+A` | Opens the overlay with candidate 1 focused. Tap and release to jump to the previous tab |
+| `A` again while holding `Ctrl` | Next candidate |
+| `Backspace` | Cycle backwards |
+| `Ctrl+Shift+A` | Cycle backwards (does not work on Windows / Linux) |
+| `W` | Closes the focused tab (macOS only) |
+| `Esc` | Cancel and stay on the current tab |
+| Release `Ctrl` | Commit to the focused tab |
 
-プレビューは現在タブを含めて最大 5 枚。切り替え候補は現在のウィンドウ内のタブのみ。
+At most 5 previews including the current tab. Candidates come from the current window only.
 
-`W` で閉じるとオーバーレイは開いたまま続き、同じ位置に次の候補が繰り上がる。切り替え先が無くなったら閉じる。
+Closing with `W` keeps the overlay up and moves the next candidate into the same slot. If another tab is available but not shown yet, it moves up so the count returns to 5 — during the round trip that fetches it there are 4 cards, and if no candidate is left it simply stays at 4. The overlay closes once there is nothing left to switch to.
 
-## `Ctrl+Tab` ではないのはなぜか
+## Why not `Ctrl+Tab`
 
-奪えないため。
+Because it cannot be taken.
 
-- `chrome.commands` は **Chrome 33 で Tab キーをサポート対象から外した**ので、バインド自体ができない。
-- content script でも `Ctrl+Tab` / `Ctrl+Shift+Tab` は予約ショートカットで、キーイベントがレンダラに配送されず `preventDefault()` も無視される。
-- したがって「`Ctrl` を押したまま `Tab` を連打」は、オーバーレイを開く時点でも開いた後の送りでも成立しない。Brave も Chromium なので同じ。
+- `chrome.commands` **dropped Tab from its supported keys in Chrome 33**, so it cannot be bound at all.
+- In a content script, `Ctrl+Tab` and `Ctrl+Shift+Tab` are reserved shortcuts: the key event is never dispatched to the renderer and `preventDefault()` is ignored.
+- So "hold `Ctrl` and tap `Tab`" is impossible both for opening the overlay and for cycling once it is open. Brave is Chromium, so the same applies.
 
-`Ctrl+A` は好きなキーに変更できる（下記）。
+`Ctrl+A` can be changed to any key you like (see below).
 
-## 切り替え順
+## Switching order
 
-`tabs.onActivated` と `tabs.onCreated` の**両方**でそのタブを先頭へ移動する単一のスタックを持つ。
+A single stack, moved to the front on **both** `tabs.onActivated` and `tabs.onCreated`.
 
-つまり**裏で開かれたタブは一度も表示していなくても第一候補になる**。リンクを 3 本続けて裏で開いた場合、最後に開いたタブが第一候補。
+That means **a tab opened in the background becomes the first candidate even though it was never shown**. Open three links in the background and the last one opened is the first candidate.
 
 ```
-タブ A を見ている状態でリンク B → C → D を裏で開く
+Viewing tab A, open links B → C → D in the background
 
-  スタック: D C B A
-  表示:    [A] D C B
-            ↑    ↑第一候補
-           現在
+  stack:   D C B A
+  display: [A] D C B
+            ↑    ↑ first candidate
+          current
 ```
 
-## インストール
+## Install
 
 ```sh
 npm install
@@ -63,63 +63,64 @@ npm run build
 
 **Chrome**
 
-1. `chrome://extensions` を開く
-2. 右上の「デベロッパーモード」を ON
-3. 「パッケージ化されていない拡張機能を読み込む」で `dist/` を選ぶ
+1. Open `chrome://extensions`
+2. Turn on "Developer mode" in the top right
+3. Choose "Load unpacked" and pick `dist/`
 
 **Brave**
 
-同じ手順。`brave://extensions` を開く。
+Same steps, at `brave://extensions`.
 
-## ショートカットの変更
+## Changing the shortcut
 
 - Chrome: `chrome://extensions/shortcuts`
 - Brave: `brave://extensions/shortcuts`
 
-Tab キーは指定できない（前述）。
+The Tab key cannot be assigned (see above).
 
-## 既知の制限
+## Known limitations
 
-- **オーバーレイを出せないページがある。** `chrome://*`、`brave://*`、新規タブページ、Chrome Web Store、拡張機能のページ、`view-source:`、PDF ビューア、`file://`。これらのタブで `Ctrl+A` を押すと、プレビューを出さずに第一候補へ即座に切り替わる。フォーカスがアドレスバーにあるときと、**要素フルスクリーン中**（YouTube の全画面再生など）も同じ。フルスクリーンの top layer には `z-index` では勝てないため。
-- **`Ctrl+A` は全選択と衝突します。** 拡張ショートカットを登録するとブラウザ側でキーが消費されるためです。macOS は全選択が `Cmd+A` なので実害は小さく、ぶつかるのはテキスト入力欄の「行頭へ移動」だけ。**Windows / Linux では全選択が使えなくなります。**
-- **`W` でタブを閉じられるのは macOS だけです。** Windows / Linux では `Ctrl+W` が「タブを閉じる」の予約ショートカットで、キーイベントがページに届く前に**ブラウザが現在のタブを閉じます**。拡張が介入できません。
-- **`Ctrl+Shift+A` の逆送りが効かない環境がある。** Windows / Linux では `Ctrl+Shift+A` が Chrome のタブ検索に取られています。またブラウザが拡張ショートカットの keydown をページに配送しない場合も届きません。`Backspace` の逆送りは常に効くので、効かないと感じたら `Backspace` を使ってください。
-- **第一候補のプレビューが最も薄い。** `chrome.tabs.captureVisibleTab()` はアクティブなタブしか撮れないため、裏で開かれて一度も表示していないタブのスクリーンショットは存在しない。`og:image` か favicon カードで代替する。原理的に回避できない。
-- **プレビューは最後に表示されていた時点のスナップショット。** 裏タブの現在の画面は撮れない。
-- **リンクを裏で開いた直後は、`Ctrl+A` 単打が「戻る」ではなく「新しいタブへ進む」になる。** 仕様通りだが `Alt+Tab` の感覚とはズレる。
-- **ブラウザ再起動直後の初回だけ、切り替え順がタブ並び順になる。** 再起動でタブ ID が振り直されるため順序を復元できない。
-- **シークレットモードでは動かない**（`incognito: "not_allowed"`）。シークレットタブの画面が通常コンテキストと同じメモリに混ざるのを避けるため。
-- 切り替え候補は現在のウィンドウ内のみ。他ウィンドウのタブは出さない。
+- **Some pages cannot host the overlay.** `chrome://*`, `brave://*`, the new tab page, the Chrome Web Store, extension pages, `view-source:`, the PDF viewer, `file://`. Pressing `Ctrl+A` on those switches straight to the first candidate with no preview. The same happens when focus is in the address bar, and during **element fullscreen** (a fullscreen video, for example), because a `z-index` cannot beat the fullscreen top layer.
+- **`Ctrl+A` collides with select-all**, because registering an extension shortcut makes the browser consume the key. On macOS select-all is `Cmd+A`, so the impact is small — only "move to start of line" in text fields. **On Windows / Linux you lose select-all.**
+- **`W` only closes tabs on macOS.** On Windows / Linux, `Ctrl+W` is the reserved "close tab" shortcut, so **the browser closes the current tab** before the event reaches the page. The extension cannot intervene.
+- **`Ctrl+Shift+A` does not always cycle backwards.** On Windows / Linux it is taken by Chrome's tab search, and it also never arrives in browsers that do not dispatch extension shortcut keydowns to the page. `Backspace` always works, so use that if it feels dead.
+- **The first candidate has the weakest preview.** `chrome.tabs.captureVisibleTab()` can only shoot the active tab, so a tab opened in the background and never shown has no screenshot at all. It falls back to `og:image` or a favicon card. Unavoidable.
+- **Previews are snapshots from when the tab was last visible.** The current contents of a background tab cannot be captured.
+- **Right after opening a link in the background, a single `Ctrl+A` moves "forward" to the new tab rather than "back".** That is by design, but it differs from the `Alt+Tab` feel.
+- **Only the very first switch after a browser restart falls back to tab strip order.** A restart reassigns tab ids, so the order cannot be restored.
+- **Disabled in incognito** (`incognito: "not_allowed"`), to keep screenshots of incognito tabs out of the same memory as the normal context.
+- Candidates come from the current window only. Tabs in other windows are never shown.
 
-## プライバシー
+## Privacy
 
-スクリーンショットと recency スタックは `chrome.storage.session`（メモリ内）にのみ保存し、**ディスクには一切書かない**。ブラウザを閉じると消える。画像は 12 タブ分まで（LRU）。外部への送信は無い。
+Screenshots and the recency stack live only in `chrome.storage.session` (in memory) and are **never written to disk**. They vanish when the browser closes. Images are kept for up to 12 tabs (LRU). Nothing is sent anywhere.
 
-`<all_urls>` のホスト権限を要求するのは `captureVisibleTab()` にそれが必要なため。
+The `<all_urls>` host permission is required because `captureVisibleTab()` needs it.
 
-## 開発
+## Development
 
 ```sh
-npm run build       # dist/ を生成
-npm run watch       # JS を監視ビルド（静的ファイルの変更は再実行が必要）
+npm run build       # produce dist/
+npm run watch       # watch-build the JS (re-run for changes to static files)
 npm run typecheck   # tsc --noEmit
-npm test            # vitest（切り替え順ロジックの単体テスト）
+npm run lint        # eslint (only detects functions passed directly to array iterators)
+npm test            # vitest (unit tests for the switching order)
 ```
 
-構成の詳細と設計判断の理由は [docs/SPEC.md](docs/SPEC.md) に書いてある。
+[`docs/SPEC.md`](docs/SPEC.md) has the full design and the reasoning behind each decision.
 
-## トラブルシューティング
+## Troubleshooting
 
-**読み込み時に manifest のエラーが出る**
+**A manifest error on load**
 
-`commands` の `"mac": "MacCtrl+A"` が拒否された可能性がある。`manifest.json` から `suggested_key` ブロックごと削除して読み込み直し、`chrome://extensions/shortcuts` で手動割り当てすれば動く。
+`"mac": "MacCtrl+A"` under `commands` may have been rejected. Delete the whole `suggested_key` block from `manifest.json`, load it again, and assign the shortcut by hand at `chrome://extensions/shortcuts`.
 
-**`Ctrl+A` を押しても何も起きない**
+**`Ctrl+A` does nothing**
 
-1. 他の拡張とショートカットが衝突していないか `chrome://extensions/shortcuts` で確認する。
-2. そのページが上記「オーバーレイを出せないページ」でないか確認する。
-3. Service Worker のログを見る。`chrome://extensions` の当該拡張で「Service Worker」をクリックする。
+1. Check for a shortcut conflict with another extension at `chrome://extensions/shortcuts`.
+2. Check whether the page is one of those listed above that cannot host the overlay.
+3. Read the service worker log: click "Service Worker" for this extension at `chrome://extensions`.
 
-**プレビューが真っ黒／出ない**
+**A preview is black or missing**
 
-そのタブを一度も表示していない場合はスクリーンショットが存在しない（仕様）。一度表示してから試す。
+A tab that has never been shown has no screenshot, by design. Show it once and try again.

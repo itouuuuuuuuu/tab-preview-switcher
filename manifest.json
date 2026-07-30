@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Preview Switcher",
+  "version": "0.1.0",
+  "description": "Switch tabs in most-recently-opened order while looking at previews, with Ctrl+A.",
+  "minimum_chrome_version": "119",
+  "incognito": "not_allowed",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["overlay.html"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "commands": {
+    "cycle-forward": {
+      "suggested_key": {
+        "default": "Ctrl+A",
+        "mac": "MacCtrl+A"
+      },
+      "description": "Open the tab preview and cycle to the next candidate"
+    }
+  }
+}
