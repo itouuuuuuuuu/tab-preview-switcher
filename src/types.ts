@@ -30,6 +30,11 @@ export type ToContent =
 
 /** Content script to service worker. */
 export type ToWorker =
+  /**
+   * Fallback for Chromium forks that deliver an extension shortcut to the page
+   * but do not fire chrome.commands.onCommand (notably some Arc versions).
+   */
+  | { type: 'open-overlay' }
   | { type: 'commit'; tabId: number }
   | { type: 'cancel' }
   | { type: 'close-tab'; tabId: number }
