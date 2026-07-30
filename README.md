@@ -71,10 +71,22 @@ npm run build
 
 Same steps, at `brave://extensions`.
 
+**Arc**
+
+1. Open `arc://extensions` and turn on "Developer mode".
+2. Choose "Load unpacked" and select `dist/`.
+3. Open `arc://extensions/shortcuts` and confirm that `cycle-forward` has a
+   shortcut. If Arc does not retain `Ctrl+A`, assign it again there.
+
+Arc versions that expose the shortcut to the page without firing
+`chrome.commands.onCommand` are supported: the content script opens the
+overlay after a short fallback delay.
+
 ## Changing the shortcut
 
 - Chrome: `chrome://extensions/shortcuts`
 - Brave: `brave://extensions/shortcuts`
+- Arc: `arc://extensions/shortcuts`
 
 The Tab key cannot be assigned (see above).
 

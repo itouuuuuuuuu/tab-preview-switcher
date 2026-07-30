@@ -24,6 +24,12 @@ const IS_TOP = window.top === window
 
 /** Window that absorbs a double advance from the shortcut and our own keydown. */
 const ADVANCE_COALESCE_MS = 80
+/**
+ * Some Chromium forks dispatch a registered shortcut to the page but never
+ * call chrome.commands.onCommand. Give the native command a brief head start,
+ * then ask the worker to open the overlay ourselves.
+ */
+const COMMAND_FALLBACK_DELAY_MS = 120
 /** Safety net so a missed keyup cannot leave the overlay up forever. */
 const SAFETY_TIMEOUT_MS = 10_000
 /** Safety net so a child frame that missed the disarm signal does not linger. */
@@ -134,6 +140,7 @@ function installTopFrame(): void {
   let lastAdvanceAt = 0
   let safetyTimer: number | undefined
   let lastCaptureRequestAt = 0
+  let commandFallbackTimer: number | undefined
 
   /**
    * Record of keys that would otherwise be lost in the async gap before open
@@ -230,6 +237,8 @@ function installTopFrame(): void {
   }
 
   function openOverlay(candidates: Candidate[], index: number): boolean {
+    window.clearTimeout(commandFallbackTimer)
+    commandFallbackTimer = undefined
     // With focus in the address bar no key event reaches us at all, so the
     // overlay would be unusable. Let the service worker handle it.
     if (!document.hasFocus()) return false
@@ -262,6 +271,14 @@ function installTopFrame(): void {
     window.clearTimeout(safetyTimer)
     safetyTimer = window.setTimeout(commit, SAFETY_TIMEOUT_MS)
     return true
+  }
+
+  function scheduleCommandFallback(): void {
+    if (commandFallbackTimer !== undefined || isOpen) return
+    commandFallbackTimer = window.setTimeout(() => {
+      commandFallbackTimer = undefined
+      if (!isOpen) tell({ type: 'open-overlay' })
+    }, COMMAND_FALLBACK_DELAY_MS)
   }
 
   function advance(delta: number): void {
@@ -373,6 +390,9 @@ function installTopFrame(): void {
       if (signal.kind === 'keydown' && signal.ctrlKey && isCycleKey(signal.key)) {
         localKeyCapable = true
         pressesWhileClosed += 1
+        // Ctrl+Shift+A is intentionally only a backwards-cycle key after the
+        // overlay is open; it has no matching extension command to start one.
+        if (!signal.shiftKey) scheduleCommandFallback()
       }
       return
     }

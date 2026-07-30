@@ -25,6 +25,13 @@ const BLOCKED_URL = [
  */
 let mutations: Promise<unknown> = Promise.resolve()
 
+/**
+ * A content-script fallback may open the overlay just before a delayed native
+ * command arrives. Do not treat that one physical shortcut as a second cycle.
+ */
+let lastFallbackOpenAt = 0
+const FALLBACK_COMMAND_DEDUP_MS = 250
+
 function exclusive<T>(task: () => Promise<T>): Promise<T> {
   const run = mutations.then(task, task)
   mutations = run.then(
@@ -203,6 +210,7 @@ chrome.commands.onCommand.addListener((command) => {
 })
 
 async function handleCommand(): Promise<void> {
+  if (Date.now() - lastFallbackOpenAt < FALLBACK_COMMAND_DEDUP_MS) return
   const overlay = await store.getOverlay()
   if (overlay) {
     const result = await requestAdvance(overlay.tabId, 1)
@@ -305,6 +313,17 @@ chrome.runtime.onMessage.addListener((raw, sender, reply) => {
   const tabId = sender.tab?.id
 
   switch (message.type) {
+    case 'open-overlay':
+      // In Chromium this is normally unnecessary because commands.onCommand
+      // fires first. Arc can expose the key to the page without firing that
+      // event, so use the page signal only while no overlay is already open.
+      void (async () => {
+        if (await store.getOverlay()) return
+        lastFallbackOpenAt = Date.now()
+        await openOverlay()
+      })()
+      return false
+
     case 'commit':
       void (async () => {
         await closeOverlay(tabId)
