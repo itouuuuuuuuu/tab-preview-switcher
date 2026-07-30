@@ -45,7 +45,7 @@ Pressing `W` while the overlay is up closes the focused card's tab and keeps the
 - **Do not give up on the first candidate.** The tab can be closed between listing it and calling `tabs.get`, which would leave the slot empty even though other candidates remain. Walk the whole recency-ordered list minus the exclusions. `tabs.get` also succeeds for a tab that moved to another window, so **always verify the returned tab's `windowId`**; otherwise a card sneaks in that violates "candidates come from the current window only".
 - Replacement requests are **serialized**. Hammering `W` would fire the next request before the previous response arrives, hand back the same tab twice and duplicate a card.
 - The exclusion list **must include the tab ids just closed**. `tabs.onRemoved` is async, so a tab closed a moment ago is still in the stack and comes back as the replacement.
-- **Use the dedicated message that removes a single card.** Re-sending `render` rebuilds every card, re-decodes the thumbnails and replays the panel fade-in, which visibly flickers. The card being removed collapses its width over 140ms before leaving the DOM, and the rest are never touched. The card moving up expands over the same 140ms.
+- **Use the dedicated message that removes a single card.** Re-sending `render` rebuilds every card and re-decodes the thumbnails, which visibly flickers. The card being removed collapses its width over 140ms before leaving the DOM, and the rest are never touched. The card moving up expands over the same 140ms.
 - The overlay closes once there is nothing left to switch to.
 - Closing also works when focus is on the current tab (the leading card). The page hosting the overlay disappears in that case, so the state is cleaned up before the close request goes out.
 - **Does not work on Windows / Linux.** `Ctrl+W` is the reserved "close tab" shortcut: **the browser closes the current tab** before the event reaches the page, leaving no room for the extension. On macOS that is `Cmd+W`, so `Ctrl+W` is free and this works as intended.
@@ -120,8 +120,6 @@ Persisting to disk would not help: **a browser restart reassigns every tab id**,
 - The iframe is created on the first `Ctrl+A` and then kept with `display: none` and reused. It is appended to `document.documentElement`.
 - **On close, do not just hide the iframe — send `hide` so the panel itself is hidden too.** The iframe is reused, so without this the panel keeps holding the previous cards. `postMessage` queues its delivery as a posted message task, which allows this order on the next open: send `render` → set the iframe to `display: block` → **a rendering opportunity lands before the `render` task and the previous cards are painted for one frame** → `render` runs and replaces them. When the candidates happen to be the same it goes unnoticed, so it surfaces as a rare flicker.
 
-  As a side effect this also fixes the `appear` animation restarting. The panel now always begins hidden, so it never snaps from fully shown back to `opacity: 0`.
-
   The cards are not thrown away. Keeping them preserves decoded images, the next `render` replaces them anyway, and nothing paints while the panel is hidden.
 - **Key watching lives in the content script** and focus is never moved into the iframe. Moving focus while `Ctrl` is held is not reliable and would wreck the page's text selection and IME state. The iframe only receives the focus position by `postMessage` and renders.
 - postMessage is validated with a random token, since the page can obtain a reference to the iframe and send forged messages. **The token is never in the iframe URL**: the `src` attribute is readable from the page, so it would be no secret. It is delivered in the first message after load, and the overlay adopts only the first token it receives. The page can post into this iframe but cannot read the messages posted to it.
@@ -140,7 +138,12 @@ The content script runs with `all_frames: true` plus `match_about_blank: true` a
 
 - A child frame's content script relays keydown / keyup to the service worker **via `chrome.runtime`**, and the worker forwards them to `frameId: 0`.
 - **Never relay with in-page postMessage.** Page scripts in that frame can both forge and observe it, which means (a) a forged `Control` keyup lets a hostile page switch tabs with no user action, and (b) it becomes a leak channel telling the parent page about `Control` / `Backspace` / `Escape` / `Ctrl+A` typed inside a cross-origin frame. Distributing a shared secret does not help, because the delivery channel itself is observable. Extension messaging can be neither forged nor observed by the page.
-- A child frame sends nothing until it receives `arm` from the service worker, so ordinary browsing carries no overhead. As a safety net against a missed disarm it turns itself off after 12 seconds.
+- Before `arm`, a child frame relays only the physical `Control` state and
+  `Ctrl+A`. The top frame needs those opening signals so a quick tap released
+  before `arm` arrives does not leave the overlay open until the safety timeout.
+  It does not prevent the page's default handling in this state.
+- After `arm`, a child frame relays every overlay key. As a safety net against a
+  missed disarm it returns to the opening-signals-only state after 12 seconds.
 - A child frame calls `preventDefault()` on every keydown while armed. Otherwise `Backspace` in a text field deletes characters while also cycling backwards.
 
 ### Deciding the overlay cannot be opened
@@ -169,7 +172,7 @@ Matches the reference screenshot.
 - Cards: a single row with an even gap. Thumbnails are 16:10 with a 10px radius and `object-fit: cover`.
 - Label: below the thumbnail, an 18px favicon plus one line of title truncated with `text-overflow: ellipsis`.
 - **Focus is shown by glow, not by scaling up.** Only the focused card gets a blurred blue-to-purple-to-pink gradient around its edge plus a translucent rounded plate. The label sits inside the glowing area too.
-- 90ms fade-in on show. 120ms transition when focus moves.
+- The panel and cards appear immediately. Focus moves with a 120ms transition.
 
 ## 8. Exclusions and opting out
 

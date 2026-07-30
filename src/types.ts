@@ -67,8 +67,8 @@ export type OverlayPayload =
   | { type: 'render'; candidates: Candidate[]; focusIndex: number }
   | { type: 'focus'; focusIndex: number }
   /**
-   * Removes a single card. Re-sending render would rebuild every card, re-decode
-   * the thumbnails and replay the panel fade-in, so closing always uses this.
+   * Removes a single card. Re-sending render would rebuild every card and
+   * re-decode the thumbnails, so closing always uses this.
    */
   | { type: 'remove'; index: number; focusIndex: number }
   /** Appends a card to fill the freed slot. */

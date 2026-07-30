@@ -91,14 +91,19 @@ function installRelay(): void {
   let disarmTimer: number | undefined
 
   const onKey = (kind: 'keydown' | 'keyup') => (event: KeyboardEvent) => {
-    if (!armed) return
-    if (kind === 'keydown') {
+    if (armed && kind === 'keydown') {
       // Swallow everything while the overlay is up. Otherwise Backspace deletes
       // characters in a text field while also cycling backwards.
       event.preventDefault()
       event.stopPropagation()
     }
-    if (!isRelevant(event)) return
+
+    // Before arm, the top frame still needs the opening shortcut's physical Ctrl
+    // state. Otherwise a quick tap in a child frame can release Ctrl before arm
+    // arrives, leaving the overlay open until its safety timeout commits.
+    const openingSignal =
+      event.key === 'Control' || (isCycleKey(event.key) && event.ctrlKey)
+    if (!(armed ? isRelevant(event) : openingSignal)) return
     tell({ type: 'relay-key', signal: serialize(kind, event) })
   }
 
@@ -347,8 +352,8 @@ function installTopFrame(): void {
     // The next candidate moves up into the same slot. Only closing the last card
     // walks focus back by one.
     if (focusIndex >= ring.length) focusIndex = ring.length - 1
-    // Sending render would rebuild every card, re-decode the thumbnails and
-    // replay the panel fade-in, which flickers. Remove just the closed one.
+    // Sending render would rebuild every card and re-decode the thumbnails,
+    // which flickers. Remove just the closed one.
     toOverlay({ type: 'remove', index: removedIndex, focusIndex })
 
     refill()
