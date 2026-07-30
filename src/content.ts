@@ -91,14 +91,19 @@ function installRelay(): void {
   let disarmTimer: number | undefined
 
   const onKey = (kind: 'keydown' | 'keyup') => (event: KeyboardEvent) => {
-    if (!armed) return
-    if (kind === 'keydown') {
+    if (armed && kind === 'keydown') {
       // Swallow everything while the overlay is up. Otherwise Backspace deletes
       // characters in a text field while also cycling backwards.
       event.preventDefault()
       event.stopPropagation()
     }
-    if (!isRelevant(event)) return
+
+    // Before arm, the top frame still needs the opening shortcut's physical Ctrl
+    // state. Otherwise a quick tap in a child frame can release Ctrl before arm
+    // arrives, leaving the overlay open until its safety timeout commits.
+    const openingSignal =
+      event.key === 'Control' || (isCycleKey(event.key) && event.ctrlKey)
+    if (!(armed ? isRelevant(event) : openingSignal)) return
     tell({ type: 'relay-key', signal: serialize(kind, event) })
   }
 

@@ -24,6 +24,7 @@ const BLOCKED_URL = [
  * updates must go through here.
  */
 let mutations: Promise<unknown> = Promise.resolve()
+let overlayActions: Promise<unknown> = Promise.resolve()
 
 /**
  * A content-script fallback may open the overlay just before a delayed native
@@ -35,6 +36,16 @@ const FALLBACK_COMMAND_DEDUP_MS = 250
 function exclusive<T>(task: () => Promise<T>): Promise<T> {
   const run = mutations.then(task, task)
   mutations = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+/** Prevents native commands and the delayed Arc fallback from opening twice. */
+function exclusiveOverlay<T>(task: () => Promise<T>): Promise<T> {
+  const run = overlayActions.then(task, task)
+  overlayActions = run.then(
     () => undefined,
     () => undefined,
   )
@@ -206,11 +217,14 @@ function isInjectable(url: string | undefined): boolean {
 
 chrome.commands.onCommand.addListener((command) => {
   if (command !== 'cycle-forward') return
-  void handleCommand()
+  const commandAt = Date.now()
+  void exclusiveOverlay(() => handleCommand(commandAt))
 })
 
-async function handleCommand(): Promise<void> {
-  if (Date.now() - lastFallbackOpenAt < FALLBACK_COMMAND_DEDUP_MS) return
+async function handleCommand(commandAt: number): Promise<void> {
+  // Compare the event time, not the time this serialized action starts. A slow
+  // fallback open can keep the matching native command queued for over 250ms.
+  if (commandAt - lastFallbackOpenAt < FALLBACK_COMMAND_DEDUP_MS) return
   const overlay = await store.getOverlay()
   if (overlay) {
     const result = await requestAdvance(overlay.tabId, 1)
@@ -285,11 +299,13 @@ async function switchToFirstIn(ring: readonly number[], windowId: number): Promi
   }
 }
 
-async function switchTo(tabId: number): Promise<void> {
+async function switchTo(tabId: number, windowId: number): Promise<void> {
   try {
+    const tab = await chrome.tabs.get(tabId)
+    if (tab.windowId !== windowId) return
     await chrome.tabs.update(tabId, { active: true })
   } catch {
-    // Already closed.
+    // Already closed or moved while the overlay was open.
   }
 }
 
@@ -317,17 +333,20 @@ chrome.runtime.onMessage.addListener((raw, sender, reply) => {
       // In Chromium this is normally unnecessary because commands.onCommand
       // fires first. Arc can expose the key to the page without firing that
       // event, so use the page signal only while no overlay is already open.
-      void (async () => {
+      void exclusiveOverlay(async () => {
         if (await store.getOverlay()) return
         lastFallbackOpenAt = Date.now()
         await openOverlay()
-      })()
+      })
       return false
 
     case 'commit':
       void (async () => {
+        const overlay = await store.getOverlay()
+        const windowId =
+          overlay && overlay.tabId === tabId ? overlay.windowId : sender.tab?.windowId
         await closeOverlay(tabId)
-        await switchTo(message.tabId)
+        if (windowId !== undefined) await switchTo(message.tabId, windowId)
       })()
       return false
 
@@ -403,6 +422,10 @@ chrome.tabs.onAttached.addListener((tabId, info) => {
 
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   if (change.status === 'loading') {
+    // A screenshot or poster belongs to the previous document. Keeping it would
+    // label the new URL with imagery from an unrelated (and possibly sensitive)
+    // page, especially when a background tab navigates and cannot be recaptured.
+    void store.clearPreview(tabId)
     // Rebuilding the page wipes the content script's state, so drop ours too.
     void (async () => {
       const overlay = await store.getOverlay()

@@ -1,4 +1,4 @@
-import { putThumb } from './store'
+import { getPreviewGeneration, putThumb } from './store'
 
 /**
  * captureVisibleTab can only shoot the active tab and is limited to two calls
@@ -9,6 +9,7 @@ const TARGET_WIDTH = 420
 const JPEG_QUALITY = 0.6
 
 let lastCaptureAt = 0
+let captures: Promise<unknown> = Promise.resolve()
 
 /**
  * Confirms tabId is still the visible one, then captures, shrinks and stores it.
@@ -18,18 +19,42 @@ let lastCaptureAt = 0
  * If the tab changed during a delayed call, we would store another tab's screen
  * under this tabId.
  */
-export async function captureVisible(windowId: number, tabId: number): Promise<void> {
+export function captureVisible(windowId: number, tabId: number): Promise<void> {
+  const run = captures.then(
+    () => captureVisibleNow(windowId, tabId),
+    () => captureVisibleNow(windowId, tabId),
+  )
+  captures = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+async function captureVisibleNow(windowId: number, tabId: number): Promise<void> {
   if (Date.now() - lastCaptureAt < MIN_INTERVAL_MS) return
 
   try {
     const [active] = await chrome.tabs.query({ active: true, windowId })
     if (active?.id !== tabId) return
+    const previewGeneration = getPreviewGeneration(tabId)
 
     // Recorded after the check so a bail-out does not burn the rate limit.
     lastCaptureAt = Date.now()
     const raw = await chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 80 })
     if (!raw) return
-    await putThumb(tabId, await shrink(raw))
+
+    // The tab can change after the pre-capture query while the browser processes
+    // captureVisibleTab. Never associate that result with a tab that is no longer
+    // visible.
+    const [afterCapture] = await chrome.tabs.query({ active: true, windowId })
+    if (afterCapture?.id !== tabId) return
+
+    const thumbnail = await shrink(raw)
+    const [beforeStore] = await chrome.tabs.query({ active: true, windowId })
+    if (beforeStore?.id !== tabId) return
+    if (getPreviewGeneration(tabId) !== previewGeneration) return
+    await putThumb(tabId, thumbnail)
   } catch {
     // chrome://, the PDF viewer, exceeding the limit, a window that just closed.
   }

@@ -140,7 +140,12 @@ The content script runs with `all_frames: true` plus `match_about_blank: true` a
 
 - A child frame's content script relays keydown / keyup to the service worker **via `chrome.runtime`**, and the worker forwards them to `frameId: 0`.
 - **Never relay with in-page postMessage.** Page scripts in that frame can both forge and observe it, which means (a) a forged `Control` keyup lets a hostile page switch tabs with no user action, and (b) it becomes a leak channel telling the parent page about `Control` / `Backspace` / `Escape` / `Ctrl+A` typed inside a cross-origin frame. Distributing a shared secret does not help, because the delivery channel itself is observable. Extension messaging can be neither forged nor observed by the page.
-- A child frame sends nothing until it receives `arm` from the service worker, so ordinary browsing carries no overhead. As a safety net against a missed disarm it turns itself off after 12 seconds.
+- Before `arm`, a child frame relays only the physical `Control` state and
+  `Ctrl+A`. The top frame needs those opening signals so a quick tap released
+  before `arm` arrives does not leave the overlay open until the safety timeout.
+  It does not prevent the page's default handling in this state.
+- After `arm`, a child frame relays every overlay key. As a safety net against a
+  missed disarm it returns to the opening-signals-only state after 12 seconds.
 - A child frame calls `preventDefault()` on every keydown while armed. Otherwise `Backspace` in a text field deletes characters while also cycling backwards.
 
 ### Deciding the overlay cannot be opened
