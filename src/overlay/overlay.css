@@ -70,6 +70,17 @@ body {
   display: block;
 }
 
+/*
+ * Do not let the focused card's transition become an entrance animation when
+ * the iframe's first paint lands between render's DOM updates. overlay.ts
+ * removes this class on the following animation frame.
+ */
+.panel.is-rendering,
+.panel.is-rendering * {
+  transition: none !important;
+  animation: none !important;
+}
+
 .row {
   display: flex;
   gap: 8px;

@@ -24,6 +24,7 @@ const panel = must('panel')
 const row = must('row')
 
 let cards: HTMLElement[] = []
+let settleRenderFrame: number | undefined
 
 window.addEventListener('message', (event) => {
   if (event.source !== window.parent) return
@@ -53,10 +54,20 @@ window.addEventListener('message', (event) => {
 })
 
 function render(candidates: Candidate[], focusIndex: number): void {
+  // A newly loaded iframe can paint between DOM insertion and the focused class
+  // taking effect. In that case the focus transition plays as an unintended
+  // entrance animation. Keep motion disabled until this render has settled;
+  // later focus changes still transition normally.
+  panel.classList.add('is-rendering')
+  if (settleRenderFrame !== undefined) window.cancelAnimationFrame(settleRenderFrame)
   cards = candidates.map((candidate) => buildCard(candidate))
   row.replaceChildren(...cards)
   setFocus(focusIndex)
   panel.classList.add('is-visible')
+  settleRenderFrame = window.requestAnimationFrame(() => {
+    panel.classList.remove('is-rendering')
+    settleRenderFrame = undefined
+  })
 }
 
 function setFocus(focusIndex: number): void {
