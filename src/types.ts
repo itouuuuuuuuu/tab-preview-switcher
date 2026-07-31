@@ -47,6 +47,11 @@ export type ToWorker =
   | { type: 'need-candidate'; exclude: number[] }
   | { type: 'poster'; url: string }
   | { type: 'idle-capture' }
+  /** Lifecycle signal for the extension-owned overlay iframe. */
+  | {
+      type: 'overlay-frame'
+      state: 'created' | 'loaded' | 'shown' | 'hidden' | 'load-timeout'
+    }
   /**
    * Forwards a key picked up in a child frame to the top frame. In-page
    * postMessage is not used: page scripts can both forge and observe it.
@@ -77,9 +82,17 @@ export type OverlayPayload =
 /** The page's origin cannot be verified, so every message carries a token. */
 export type ToOverlay = OverlayPayload & { token: string }
 
+/** Why the page cannot safely host an interactive overlay. */
+export type OpenFailureReason =
+  | 'document-not-focused'
+  | 'not-enough-candidates'
+  | 'element-fullscreen'
+  | 'ctrl-released-before-open'
+
 /** Result of an open request. false makes the service worker toggle instantly. */
 export interface OpenResult {
   handled: boolean
+  reason?: OpenFailureReason
 }
 
 /** Result of an advance request. open: false means the two states disagree. */

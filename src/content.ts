@@ -3,6 +3,7 @@ import type {
   AdvanceResult,
   Candidate,
   KeySignal,
+  OpenFailureReason,
   OpenResult,
   OverlayPayload,
   ToContent,
@@ -32,6 +33,8 @@ const ADVANCE_COALESCE_MS = 80
 const COMMAND_FALLBACK_DELAY_MS = 120
 /** Safety net so a missed keyup cannot leave the overlay up forever. */
 const SAFETY_TIMEOUT_MS = 10_000
+/** A missing iframe load leaves a logically open but invisible overlay. */
+const FRAME_LOAD_TIMEOUT_MS = 2_000
 /** Safety net so a child frame that missed the disarm signal does not linger. */
 const DISARM_FALLBACK_MS = SAFETY_TIMEOUT_MS + 2_000
 const SCROLL_IDLE_MS = 900
@@ -177,6 +180,7 @@ function installTopFrame(): void {
   function ensureFrame(): Promise<HTMLIFrameElement> {
     if (framePending) return framePending
     framePending = new Promise((resolve) => {
+      let loaded = false
       const el = document.createElement('iframe')
       el.setAttribute('aria-hidden', 'true')
       el.setAttribute('tabindex', '-1')
@@ -215,16 +219,22 @@ function installTopFrame(): void {
       el.addEventListener(
         'load',
         () => {
+          loaded = true
           // The token is not in the URL: the src attribute is readable from the
           // page, so it would be no secret. The page can post messages into this
           // iframe but cannot read the ones we post to it.
           el.contentWindow?.postMessage({ type: 'init', token } satisfies ToOverlay, EXT_ORIGIN)
+          tell({ type: 'overlay-frame', state: 'loaded' })
           resolve(el)
         },
         { once: true },
       )
       el.src = chrome.runtime.getURL('overlay.html')
       document.documentElement.appendChild(el)
+      tell({ type: 'overlay-frame', state: 'created' })
+      window.setTimeout(() => {
+        if (!loaded) tell({ type: 'overlay-frame', state: 'load-timeout' })
+      }, FRAME_LOAD_TIMEOUT_MS)
     })
     return framePending
   }
@@ -238,27 +248,31 @@ function installTopFrame(): void {
   function setVisible(visible: boolean): void {
     void ensureFrame().then((el) => {
       el.style.setProperty('display', visible ? 'block' : 'none', 'important')
+      tell({ type: 'overlay-frame', state: visible ? 'shown' : 'hidden' })
     })
   }
 
-  function openOverlay(candidates: Candidate[], index: number): boolean {
+  function openOverlay(
+    candidates: Candidate[],
+    index: number,
+  ): { handled: boolean; reason?: OpenFailureReason } {
     window.clearTimeout(commandFallbackTimer)
     commandFallbackTimer = undefined
     // With focus in the address bar no key event reaches us at all, so the
     // overlay would be unusable. Let the service worker handle it.
-    if (!document.hasFocus()) return false
-    if (candidates.length < 2) return false
+    if (!document.hasFocus()) return { handled: false, reason: 'document-not-focused' }
+    if (candidates.length < 2) return { handled: false, reason: 'not-enough-candidates' }
 
     // A z-index cannot beat the Fullscreen API top layer. Better to fall back to
     // an instant toggle than to cycle and commit over invisible cards.
-    if (document.fullscreenElement) return false
+    if (document.fullscreenElement) return { handled: false, reason: 'element-fullscreen' }
 
     // Ctrl was already released during the gap, so there is no point showing
     // anything now. Fall back to an instant toggle — this is the path that makes
     // a single Ctrl+A tap jump to the previous tab.
     if (ctrlDownAt > 0 && ctrlUpAt > ctrlDownAt) {
       pressesWhileClosed = 0
-      return false
+      return { handled: false, reason: 'ctrl-released-before-open' }
     }
 
     ring = candidates
@@ -275,7 +289,7 @@ function installTopFrame(): void {
 
     window.clearTimeout(safetyTimer)
     safetyTimer = window.setTimeout(commit, SAFETY_TIMEOUT_MS)
-    return true
+    return { handled: true }
   }
 
   function scheduleCommandFallback(): void {
@@ -450,7 +464,7 @@ function installTopFrame(): void {
     const message = raw as ToContent
     switch (message.type) {
       case 'open':
-        reply({ handled: openOverlay(message.candidates, message.focusIndex) } satisfies OpenResult)
+        reply(openOverlay(message.candidates, message.focusIndex) satisfies OpenResult)
         break
       case 'advance':
         // If we can pick up the key ourselves, skip this to avoid the round trip
