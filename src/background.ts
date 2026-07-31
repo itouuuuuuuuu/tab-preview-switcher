@@ -3,6 +3,16 @@ import { buildRing, candidatesNotIn, drop, seedFromTabStrip, touch } from './rec
 import * as store from './store'
 import type { AdvanceResult, Candidate, OpenResult, ToContent, ToWorker } from './types'
 
+const LOG_PREFIX = '[Tab Preview Switcher]'
+
+/**
+ * Keep operational diagnostics in the service-worker console. These deliberately
+ * contain only ids, counts and decisions: never page titles, URLs or previews.
+ */
+function log(event: string, details?: Record<string, unknown>): void {
+  console.info(LOG_PREFIX, event, details ?? '')
+}
+
 /** Right after activation the tab has not finished painting, so wait a moment. */
 const ACTIVATION_CAPTURE_DELAY_MS = 350
 const LOAD_CAPTURE_DELAY_MS = 250
@@ -218,20 +228,32 @@ function isInjectable(url: string | undefined): boolean {
 chrome.commands.onCommand.addListener((command) => {
   if (command !== 'cycle-forward') return
   const commandAt = Date.now()
+  log('shortcut received', { command })
   void exclusiveOverlay(() => handleCommand(commandAt))
 })
 
 async function handleCommand(commandAt: number): Promise<void> {
   // Compare the event time, not the time this serialized action starts. A slow
   // fallback open can keep the matching native command queued for over 250ms.
-  if (commandAt - lastFallbackOpenAt < FALLBACK_COMMAND_DEDUP_MS) return
+  if (commandAt - lastFallbackOpenAt < FALLBACK_COMMAND_DEDUP_MS) {
+    log('shortcut ignored: fallback already opened the overlay')
+    return
+  }
   const overlay = await store.getOverlay()
   if (overlay) {
     const result = await requestAdvance(overlay.tabId, 1)
     // Delivery can succeed while the content script is actually closed, because
     // the page was rebuilt. Without checking the real state the shortcut stays
     // dead in this tab forever.
-    if (result?.open) return
+    if (result?.open) {
+      log('advanced existing overlay', { tabId: overlay.tabId, windowId: overlay.windowId })
+      return
+    }
+    log('discarded stale overlay state', {
+      tabId: overlay.tabId,
+      windowId: overlay.windowId,
+      response: result ? 'closed' : 'unreachable',
+    })
     await store.setOverlay(null)
     void postAll(overlay.tabId, { type: 'disarm' })
   }
@@ -241,7 +263,10 @@ async function handleCommand(commandAt: number): Promise<void> {
 async function openOverlay(): Promise<void> {
   const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
   const tabId = active?.id
-  if (!active || tabId === undefined) return
+  if (!active || tabId === undefined) {
+    log('overlay skipped: no active tab')
+    return
+  }
   const windowId = active.windowId
 
   // Capture the current tab right before leaving it: the freshest shot we can
@@ -249,9 +274,16 @@ async function openOverlay(): Promise<void> {
   void captureVisible(windowId, tabId)
 
   const ring = await ringFor(windowId, tabId)
-  if (ring[1] === undefined) return // Nowhere to switch to.
+  if (ring[1] === undefined) {
+    log('overlay skipped: no switch candidate', { tabId, windowId })
+    return
+  }
 
   if (!isInjectable(active.url)) {
+    log('overlay unavailable: page cannot host content scripts; switching directly', {
+      tabId,
+      windowId,
+    })
     await switchToFirstIn(ring, windowId)
     return
   }
@@ -263,6 +295,11 @@ async function openOverlay(): Promise<void> {
   // old window's candidates to the moved tab and break the invariant that the
   // leading card is the current tab.
   if (candidates.length < 2 || candidates[0]?.tabId !== tabId) {
+    log('overlay unavailable: candidate list changed; switching directly', {
+      tabId,
+      windowId,
+      candidateCount: candidates.length,
+    })
     await switchToFirstIn(ring, windowId)
     return
   }
@@ -270,10 +307,16 @@ async function openOverlay(): Promise<void> {
   const result = await requestOpen(tabId, candidates)
   if (result?.handled) {
     await store.setOverlay({ tabId, windowId })
+    log('overlay opened', { tabId, windowId, candidateCount: candidates.length })
     void postAll(tabId, { type: 'arm' })
   } else {
     // No content script / the page has no keyboard focus / Ctrl was already
     // released / element fullscreen is active.
+    log('overlay unavailable; switching directly', {
+      tabId,
+      windowId,
+      reason: result?.reason ?? 'content-script-unreachable',
+    })
     await switchToFirstIn(ring, windowId)
   }
 }
@@ -292,20 +335,27 @@ async function switchToFirstIn(ring: readonly number[], windowId: number): Promi
       const tab = await chrome.tabs.get(tabId)
       if (tab.windowId !== windowId) continue
       await chrome.tabs.update(tabId, { active: true })
+      log('switched directly', { tabId, windowId })
       return
     } catch {
       // Already closed. Try the next candidate.
     }
   }
+  log('direct switch skipped: no eligible candidate remained', { windowId })
 }
 
 async function switchTo(tabId: number, windowId: number): Promise<void> {
   try {
     const tab = await chrome.tabs.get(tabId)
-    if (tab.windowId !== windowId) return
+    if (tab.windowId !== windowId) {
+      log('selected switch skipped: tab moved to another window', { tabId, windowId })
+      return
+    }
     await chrome.tabs.update(tabId, { active: true })
+    log('switched selected tab', { tabId, windowId })
   } catch {
     // Already closed or moved while the overlay was open.
+    log('selected switch skipped: tab is no longer available', { tabId, windowId })
   }
 }
 
@@ -334,8 +384,12 @@ chrome.runtime.onMessage.addListener((raw, sender, reply) => {
       // fires first. Arc can expose the key to the page without firing that
       // event, so use the page signal only while no overlay is already open.
       void exclusiveOverlay(async () => {
-        if (await store.getOverlay()) return
+        if (await store.getOverlay()) {
+          log('page fallback ignored: overlay already open', { tabId })
+          return
+        }
         lastFallbackOpenAt = Date.now()
+        log('page fallback received', { tabId })
         await openOverlay()
       })
       return false
@@ -345,12 +399,14 @@ chrome.runtime.onMessage.addListener((raw, sender, reply) => {
         const overlay = await store.getOverlay()
         const windowId =
           overlay && overlay.tabId === tabId ? overlay.windowId : sender.tab?.windowId
+        log('overlay commit requested', { sourceTabId: tabId, targetTabId: message.tabId, windowId })
         await closeOverlay(tabId)
         if (windowId !== undefined) await switchTo(message.tabId, windowId)
       })()
       return false
 
     case 'cancel':
+      log('overlay cancelled', { tabId })
       void closeOverlay(tabId)
       return false
 
@@ -378,6 +434,10 @@ chrome.runtime.onMessage.addListener((raw, sender, reply) => {
       if (tabId !== undefined && sender.tab?.active) {
         void captureVisible(sender.tab.windowId, tabId)
       }
+      return false
+
+    case 'overlay-frame':
+      log('overlay frame ' + message.state, { tabId, frameId: sender.frameId })
       return false
 
     case 'relay-key':
